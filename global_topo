@@ -1,0 +1,264 @@
+import turtle
+import math
+import colorsys
+import random
+import time
+
+# Test to create the diagram for 128N switched cluster and then use this to simulate the graphical I/O and utilize the CPU and Memory
+# --- Parameters ---
+NUM_NODES = 128
+NUM_SHELVES = 56
+NODE_RADIUS = 350
+SHELF_RADIUS = 470
+NODE_SIZE = 6
+SHELF_SIZE = 10
+SWITCH_SIZE = 40
+SWITCH_Y = 320
+SWITCH_X_OFFSET = 220
+CONN_PER_NODE_SWITCH = 8
+CONN_PER_NODE_SHELF = 8
+BATCH_SIZE = 4000  # How many connections to draw per frame for speed
+
+# --- Cosmic Color Palette ---
+def get_cosmic_palette(n):
+    palette = []
+    for i in range(n):
+        hue = i / n
+        rgb = colorsys.hsv_to_rgb(hue, 0.8, 1)
+        palette.append("#%02x%02x%02x" % (int(rgb[0]*255), int(rgb[1]*255), int(rgb[2]*255)))
+    return palette
+
+COSMIC_COLORS = get_cosmic_palette(360)
+
+# --- Golden Model Functions ---
+def draw_gradient_bg(screen, steps=36):
+    width, height = 1400, 1100
+    screen.setup(width, height)
+    bg_t = turtle.Turtle()
+    bg_t.hideturtle()
+    bg_t.speed(0)
+    bg_t.penup()
+    screen.tracer(0, 0)
+    for i in range(steps, 0, -1):
+        hue = i / steps
+        color = colorsys.hsv_to_rgb(hue, 0.6, 1)
+        bg_t.goto(0, -height/2 * i/steps)
+        bg_t.pendown()
+        bg_t.fillcolor(color)
+        bg_t.begin_fill()
+        for _ in range(2):
+            bg_t.forward(width * i/steps)
+            bg_t.left(90)
+            bg_t.forward(height * i/steps)
+            bg_t.left(90)
+        bg_t.end_fill()
+        bg_t.penup()
+    screen.tracer(1, 0)
+
+# --- Topology Preparation ---
+def prepare_positions():
+    # Switches
+    switch1_pos = (-SWITCH_X_OFFSET, SWITCH_Y)
+    switch2_pos = (SWITCH_X_OFFSET, -SWITCH_Y)
+    # Disk Shelves
+    shelf_positions = []
+    for i in range(NUM_SHELVES):
+        angle = 2 * math.pi * i / NUM_SHELVES
+        x = SHELF_RADIUS * math.cos(angle)
+        y = SHELF_RADIUS * math.sin(angle)
+        shelf_positions.append((x, y))
+    # Nodes
+    node_positions = []
+    for i in range(NUM_NODES):
+        angle = 2 * math.pi * i / NUM_NODES
+        x = NODE_RADIUS * math.cos(angle)
+        y = NODE_RADIUS * math.sin(angle)
+        node_positions.append((x, y))
+    return switch1_pos, switch2_pos, shelf_positions, node_positions
+
+def prepare_connections(node_positions, switch1_pos, switch2_pos, shelf_positions):
+    connections = []
+    color_idx = 0
+    color_len = len(COSMIC_COLORS)
+    # Node <-> Switch connections
+    for i, (x, y) in enumerate(node_positions):
+        for port in range(CONN_PER_NODE_SWITCH):
+            sx = switch1_pos[0] + SWITCH_SIZE*1.5 + (port-3.5)*7
+            sy = switch1_pos[1]
+            connections.append((x, y, sx, sy, COSMIC_COLORS[(color_idx + port) % color_len]))
+            sx2 = switch2_pos[0] + SWITCH_SIZE*1.5 + (port-3.5)*7
+            sy2 = switch2_pos[1] + SWITCH_SIZE
+            connections.append((x, y, sx2, sy2, COSMIC_COLORS[(color_idx + port + 4) % color_len]))
+        color_idx = (color_idx + 8) % color_len
+    # Node <-> Disk shelf connections
+    for ni, (nx, ny) in enumerate(node_positions):
+        for si, (sx, sy) in enumerate(shelf_positions):
+            for port in range(CONN_PER_NODE_SHELF):
+                angle = math.atan2(sy-ny, sx-nx)
+                offset = port * 2 - 7
+                tx = sx + offset*math.cos(angle+math.pi/2)
+                ty = sy + offset*math.sin(angle+math.pi/2)
+                connections.append((nx, ny, tx, ty, COSMIC_COLORS[(color_idx + port + si) % color_len]))
+            color_idx = (color_idx + 8) % color_len
+    return connections
+
+# --- Drawing Functions ---
+def draw_static_elements(switch1_pos, switch2_pos, shelf_positions, node_positions):
+    # Switches
+    switch_t = turtle.Turtle()
+    switch_t.hideturtle()
+    switch_t.speed(0)
+    switch_t.pensize(4)
+    # Switch 1 (top)
+    switch_t.penup()
+    switch_t.goto(switch1_pos)
+    switch_t.pendown()
+    switch_t.fillcolor("#1a73e8")
+    switch_t.begin_fill()
+    for _ in range(2):
+        switch_t.forward(SWITCH_SIZE*3)
+        switch_t.right(90)
+        switch_t.forward(SWITCH_SIZE)
+        switch_t.right(90)
+    switch_t.end_fill()
+    switch_t.penup()
+    switch_t.goto(switch1_pos[0]+SWITCH_SIZE*1.5, switch1_pos[1]+10)
+    switch_t.pencolor("white")
+    switch_t.write("Cisco 9808-A", align="center", font=("Arial", 12, "bold"))
+    # Switch 2 (bottom)
+    switch_t.goto(switch2_pos)
+    switch_t.pendown()
+    switch_t.fillcolor("#ea4335")
+    switch_t.begin_fill()
+    for _ in range(2):
+        switch_t.forward(SWITCH_SIZE*3)
+        switch_t.right(90)
+        switch_t.forward(SWITCH_SIZE)
+        switch_t.right(90)
+    switch_t.end_fill()
+    switch_t.penup()
+    switch_t.goto(switch2_pos[0]+SWITCH_SIZE*1.5, switch2_pos[1]+10)
+    switch_t.pencolor("white")
+    switch_t.write("Cisco 9808-B", align="center", font=("Arial", 12, "bold"))
+    # Disk Shelves
+    shelf_t = turtle.Turtle()
+    shelf_t.hideturtle()
+    shelf_t.speed(0)
+    shelf_t.pensize(2)
+    for i, (x, y) in enumerate(shelf_positions):
+        shelf_t.penup()
+        shelf_t.goto(x, y - SHELF_SIZE)
+        shelf_t.pendown()
+        shelf_t.fillcolor("#ffcc00")
+        shelf_t.begin_fill()
+        shelf_t.circle(SHELF_SIZE)
+        shelf_t.end_fill()
+        shelf_t.penup()
+        shelf_t.goto(x, y + SHELF_SIZE + 2)
+        shelf_t.pencolor("#222")
+        shelf_t.write(f"S{i+1}", align="center", font=("Arial", 7, "normal"))
+    # Nodes
+    node_t = turtle.Turtle()
+    node_t.hideturtle()
+    node_t.speed(0)
+    node_t.pensize(2)
+    for i, (x, y) in enumerate(node_positions):
+        node_t.penup()
+        node_t.goto(x, y - NODE_SIZE)
+        node_t.pendown()
+        node_t.fillcolor("#34a853")
+        node_t.begin_fill()
+        node_t.circle(NODE_SIZE)
+        node_t.end_fill()
+        node_t.penup()
+        node_t.goto(x, y + NODE_SIZE + 2)
+        node_t.pencolor("#222")
+        node_t.write(f"N{i+1}", align="center", font=("Arial", 7, "normal"))
+
+def draw_legend():
+    legend_t = turtle.Turtle()
+    legend_t.hideturtle()
+    legend_t.penup()
+    legend_t.goto(-650, 500)
+    legend_t.pendown()
+    legend_t.pencolor("#222")
+    legend_t.write("Legend:", font=("Arial", 13, "bold"))
+    y = 480
+    for label, color in [("Node", "#34a853"), ("Switch", "#1a73e8"), ("Disk Shelf", "#ffcc00"), ("Connection", "#ff00cc")]:
+        legend_t.penup()
+        legend_t.goto(-640, y)
+        legend_t.pendown()
+        legend_t.pencolor(color)
+        if label == "Node":
+            legend_t.dot(14, color)
+        elif label == "Switch":
+            legend_t.pensize(6)
+            legend_t.forward(30)
+            legend_t.pensize(1)
+        elif label == "Disk Shelf":
+            legend_t.dot(14, color)
+        elif label == "Connection":
+            for i in range(8):
+                legend_t.pencolor(COSMIC_COLORS[(i*30)%len(COSMIC_COLORS)])
+                legend_t.forward(4)
+        legend_t.penup()
+        legend_t.goto(-600, y-7)
+        legend_t.pendown()
+        legend_t.pencolor("#222")
+        legend_t.write(label, font=("Arial", 11, "normal"))
+        y -= 25
+    legend_t.penup()
+    legend_t.goto(0, 530)
+    legend_t.pencolor("#202124")
+    legend_t.write("ONTAP Cluster: 128 Nodes, 2x9808, 56 Disk Shelves, All Universe Colors", align="center", font=("Arial", 20, "bold"))
+
+# --- Animation ---
+def animate_connections(connections, conn_t, forward=True, batch_size=BATCH_SIZE):
+    total = len(connections)
+    idx = 0 if forward else total-1
+    step = 1 if forward else -1
+    while (0 <= idx < total):
+        for _ in range(batch_size):
+            if not (0 <= idx < total):
+                break
+            x1, y1, x2, y2, color = connections[idx]
+            conn_t.pencolor(color if forward else "white")
+            conn_t.penup()
+            conn_t.goto(x1, y1)
+            conn_t.pendown()
+            conn_t.goto(x2, y2)
+            idx += step
+        conn_t.screen.update()
+        yield  # allow mainloop to process events
+
+def main():
+    screen = turtle.Screen()
+    screen.bgcolor("white")
+    draw_gradient_bg(screen, steps=36)
+    switch1_pos, switch2_pos, shelf_positions, node_positions = prepare_positions()
+    draw_static_elements(switch1_pos, switch2_pos, shelf_positions, node_positions)
+    draw_legend()
+    connections = prepare_connections(node_positions, switch1_pos, switch2_pos, shelf_positions)
+    conn_t = turtle.Turtle()
+    conn_t.hideturtle()
+    conn_t.speed(0)
+    conn_t.pensize(1)
+    conn_t.screen.tracer(0, 0)
+
+    # Animation loop
+    def animate():
+        while True:
+            # Draw all connections (forward)
+            for _ in animate_connections(connections, conn_t, forward=True):
+                pass
+            # Erase all connections (reverse)
+            for _ in animate_connections(connections, conn_t, forward=False):
+                pass
+
+    # Run animation in a thread to keep turtle responsive
+    import threading
+    threading.Thread(target=animate, daemon=True).start()
+    turtle.mainloop()
+
+if __name__ == "__main__":
+    main()
