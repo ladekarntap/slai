@@ -1,0 +1,12 @@
+[arista_7050cx3]
+steswitch-vino-aswt01
+steswitch-vino-aswt02
+
+[arista_7050cx3:vars]
+ansible_network_os=eos
+ansible_connection=network_cli
+ansible_user=${ARISTA_USER}
+ansible_password=${ARISTA_PASS}
+ansible_become=yes
+ansible_become_method=enable
+ansible_become_password=${ARISTA_ENABLE_PASS}
